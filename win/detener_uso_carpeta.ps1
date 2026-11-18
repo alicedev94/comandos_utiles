@@ -4,3 +4,5 @@ $_.CommandLine -like "*drove-runtime*" -or $_.ExecutablePath -like "*drove-runti
  ForEach-Object { 
     Write-Host "Cerrando: $($_.Name) (PID: $($_.ProcessId))"; Stop-Process -Id $_.ProcessId -Force 
 }
+
+

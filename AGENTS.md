@@ -1,128 +1,125 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd prime` for full workflow context.
+Personal Windows utility-script repo. Two PowerShell scripts under `win/` plus Beads (`bd`)
+issue tracking. No application code, no build system, no test suite.
 
-> **Architecture in one line:** Issues live in a local Dolt database
-> (`.beads/dolt/`); cross-machine sync uses `bd dolt push/pull` (a
-> git-compatible protocol), stored under `refs/dolt/data` on your git
-> remote — separate from `refs/heads/*` where your code lives.
-> `.beads/issues.jsonl` is a passive export, not the wire protocol.
->
-> See [sync-concepts](https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md)
-> for the one-screen overview and anti-patterns (don't treat JSONL as the
-> source of truth; don't `bd import` during normal operation; don't
-> reach for third-party Dolt hosting before trying the default).
+## Running `bd` on this machine (read this first)
 
-## Quick Reference
+PowerShell execution policy is `Undefined` at every scope, so the `bd.ps1` shim **cannot be
+loaded**. Invoking `bd` directly in PowerShell fails with `PSSecurityException` / "la ejecución
+de scripts está deshabilitada en este sistema".
 
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work atomically
-bd close <id>         # Complete work
-bd dolt push          # Push beads data to remote
+Always invoke it through the CMD shim:
+
+```powershell
+cmd /c "bd ready"          # works
+cmd /c "bd list --status=open"
+cmd /c "bd show <id>"
 ```
 
-## Non-Interactive Shell Commands
+Do not "fix" this by changing the machine execution policy, and do not add `bd` calls to
+PowerShell-based tooling that would inherit the same restriction. The Cursor hook
+(`.cursor/hooks.json` -> `bd cursor-hook ...`) runs in its own shell and is unaffected.
 
-**ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
+## Task tracking
 
-Shell commands like `cp`, `mv`, and `rm` may be aliased to include `-i` (interactive) mode on some systems, causing the agent to hang indefinitely waiting for y/n input.
-
-**Use these forms instead:**
-```bash
-# Force overwrite without prompting
-cp -f source dest           # NOT: cp source dest
-mv -f source dest           # NOT: mv source dest
-rm -f file                  # NOT: rm file
-
-# For recursive operations
-rm -rf directory            # NOT: rm -r directory
-cp -rf source dest          # NOT: cp -r source dest
-```
-
-**Other commands that may prompt:**
-- `scp` - use `-o BatchMode=yes` for non-interactive
-- `ssh` - use `-o BatchMode=yes` to fail instead of prompting
-- `apt-get` - use `-y` flag
-- `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
-
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:46cd31e7 -->
-## Beads Issue Tracker
-
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
-
-### Quick Reference
+`bd` is the single source of truth for work items. Do not create markdown TODO lists, and do
+not use `bd remember` to write `MEMORY.md` files.
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>         # Complete work
+bd ready              # issues with no blockers
+bd show <id>          # full detail incl. design notes
+bd update <id> --claim  # claim atomically
+bd close <id>         # mark done
+bd create "title" -d "details" -t task -p 2
 ```
 
-### Rules
+Run `bd prime` for the authoritative command reference and workflow context; it is regenerated
+by `bd setup` and supersedes any hand-written command list here.
 
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+### Session start / session end
 
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md for details and anti-patterns.
+Start: run `cmd /c "bd ready"` and read any open issue with `bd show <id>` before writing code —
+the issue description is where the previous agent left context.
 
-## Agent Context Profiles
+End: close finished issues, create a follow-up issue with concrete technical detail if work
+remains, then report changed files and validation.
 
-The managed Beads block is task-tracking guidance, not permission to override repository, user, or orchestrator instructions.
+**Git authority is conservative by default.** Do not run `git commit`, `git push`, or
+`bd dolt push` unless the user or orchestrator explicitly asks. The managed Beads block in this
+file describes the profile rules: Conservative and Minimal profiles report status and proposed
+commands instead of acting; only a Team-maintainer opt-in authorizes commits and pushes.
 
-- **Conservative (default)**: Use `bd` for task tracking. Do not run git commits, git pushes, or Dolt remote sync unless explicitly asked. At handoff, report changed files, validation, and suggested next commands.
-- **Minimal**: Keep tool instruction files as pointers to `bd prime`; use the same conservative git policy unless active instructions say otherwise.
-- **Team-maintainer**: Only when the repository explicitly opts in, agents may close beads, run quality gates, commit, and push as part of session close. A current "do not commit" or "do not push" instruction still wins.
+## Two separate remotes — do not conflate them
 
-## Session Completion
+| What | Command | Where it goes |
+|---|---|---|
+| Source code | `git push` | `origin` = `git+https://github.com/alicedev94/comandos_utiles.git` |
+| Issue data | `bd dolt push` | Same URL, but stored under `refs/dolt/data` on the remote |
 
-This protocol applies when ending a Beads implementation workflow. It is subordinate to explicit user, repository, and orchestrator instructions.
+They are separate ref namespaces on the same git remote. Pushing code does **not** push issue
+data and vice versa. `.beads/issues.jsonl` is a passive export, not the wire protocol — do not
+treat it as the source of truth and do not run `bd import` during normal operation.
 
-1. **File issues for remaining work** - Create beads for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **Handle git/sync by active profile**:
-   ```bash
-   # Conservative/minimal/default: report status and proposed commands; wait for approval.
-   git status
+The Dolt engine here is **embedded / in-process** (no server), data lives in
+`.beads/embeddeddolt/`. See
+[sync-concepts](https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md).
 
-   # Team-maintainer opt-in only, unless current instructions forbid it:
-   git pull --rebase
-   bd dolt push
-   git push
-   git status
-   ```
-5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
+## The `win/` scripts
 
-**Critical rules:**
-- Explicit user or orchestrator instructions override this Beads block.
-- Do not commit or push without clear authority from the active profile or the current user request.
-- If a required sync or push is blocked, stop and report the exact command and error.
-<!-- END BEADS INTEGRATION -->
+Both target a `drove-runtime` folder that is *not* in the repo:
 
-<!-- BEGIN BEADS CODEX SETUP: generated by bd setup codex -->
-## Beads Issue Tracker
+- `win/detener_uso_carpeta.ps1` — finds processes whose command line or executable path
+  contains `drove-runtime` and force-kills them (`Stop-Process -Force`).
+- `win/elimar_carpeta_contemido.ps1` — `Remove-Item -Path ".\drove-runtime" -Recurse -Force`.
+- `win/ejecutar_programa.ps1` — runs an `.exe` and waits for it to finish, propagating its
+  exit code. Takes an optional `-Ruta` (default `.\drove-runtime\programa.exe`); passes no
+  extra arguments to the executable.
 
-Use Beads (`bd`) for durable task tracking in repositories that include it. Use the `beads` skill at `.agents/skills/beads/SKILL.md` (project install) or `~/.agents/skills/beads/SKILL.md` (global install) for Beads workflow guidance, then use the `bd` CLI for issue operations.
+Gotchas:
 
-### Quick Reference
+- `ejecutar_programa.ps1` needs `-ExecutionPolicy Bypass` to run on this machine
+  (`powershell -ExecutionPolicy Bypass -File .\win\ejecutar_programa.ps1`), for the same
+  policy reason described above. Its `-Ruta` default is relative to the current directory,
+  not to the script location.
 
-```bash
-bd ready                # Find available work
-bd show <id>            # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>           # Complete work
-bd prime                # Refresh Beads context
-```
+- **`elimar_carpeta_contemido.ps1` uses a relative path** (`.\drove-runtime`), so it only
+  deletes a folder in the current working directory. Run it from the directory that actually
+  contains `drove-runtime`, and confirm the target before running — `-Recurse -Force` is
+  unrecoverable.
+- The scripts are Windows-only (PowerShell + `Win32_Process` CIM class). They are a
+  convenience for the author's machine, not portable tooling.
+- `drove-runtime` is not tracked and not gitignored. If it is ever created in the repo root,
+  add it to `.gitignore` before committing.
 
-### Rules
+## Repository facts
 
-- Use `bd` for all task tracking; do not create markdown TODO lists.
-- Run `bd prime` when Beads context is missing or stale. Codex 0.129.0+ can load Beads context automatically through native hooks; use `/hooks` to inspect or toggle them.
-- Keep persistent project memory in Beads via `bd remember`; do not create ad hoc memory files.
+- `package.json` is a stub: `npm test` intentionally fails with "no test specified". There is
+  no build, lint, typecheck, or test command — do not invent one or claim validation that did
+  not happen.
+- No CI workflows, no pre-commit tooling of its own. The only git hooks are the Beads-managed
+  ones under `.beads/hooks/` (pre-commit, pre-push, post-checkout, post-merge,
+  prepare-commit-msg), installed by `bd init`. They are inert if `bd` is not on the hook
+  shell's `PATH`.
+- Default branch is `main`. Beads issues are currently empty (`bd ready` reports no open
+  issues), so there is no pre-seeded roadmap to align with.
 
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md for details and anti-patterns.
-<!-- END BEADS CODEX SETUP -->
+## Non-interactive shell commands
+
+`cp`, `mv`, and `rm` may be aliased with `-i` on some systems and will hang waiting for
+y/n input. Use `cp -f`, `mv -f`, `rm -f`, `rm -rf`, `cp -rf`. For remote commands use
+`scp -o BatchMode=yes` and `ssh -o BatchMode=yes`; add `-y` to `apt-get` and
+`HOMEBREW_NO_AUTO_UPDATE=1` to `brew`.
+
+## Instruction files in this repo
+
+| File | Role |
+|---|---|
+| `AGENTS.md` (this file) | Primary instructions |
+| `CLAUDE.md` | Claude Code variant; its Build/Test and Architecture sections are unfilled placeholders |
+| `.cursor/rules/beads.mdc` | `alwaysApply: true` — auto-loaded by Cursor |
+| `.agents/skills/beads/SKILL.md` | Beads skill, loaded on demand |
+
+The `<!-- BEGIN/END BEADS ... -->` and `<!-- BEGIN/END BEADS CODEX SETUP -->` blocks in this
+file are generated by `bd setup`. Edit inside them only via `bd setup`; keep custom guidance
+outside the markers so it survives regeneration.
