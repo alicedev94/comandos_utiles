@@ -1,0 +1,1 @@
+Remove-Item -Path ".\drove-runtime" -Recurse -Force
