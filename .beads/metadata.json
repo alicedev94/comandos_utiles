@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "comandos_utiles",
+  "project_id": "46301627-b5ce-4420-a957-ff3c64c922e0"
+}
